@@ -25,10 +25,10 @@ pip install requests
 python3 ollama_chat.py --host http://<ollama-host>:<port>
 ```
 
-For example, to connect to an Ollama server at `192.168.1.111` on port `8000`:
+For example, to connect to an Ollama server at `192.168.1.50` on port `11434`:
 
 ```bash
-python3 ollama_chat.py --host http://192.168.1.111:8000
+python3 ollama_chat.py --host http://192.168.1.50:11434
 ```
 
 If `--host` is omitted, it defaults to `http://localhost:11434`.
@@ -47,3 +47,7 @@ After selecting a model, type messages at the `You:` prompt and the model's repl
 ### Exiting
 
 Type `exit` or `quit` at the prompt, or press `Ctrl+D`, to leave the chat cleanly.
+
+## Notes
+
+Before a model's reply is added to the conversation history, `<think>...</think>` reasoning blocks are stripped and stray backslashes are escaped. This works around a bug in some Ollama-compatible backends (e.g. Hailo's HailoRT runtime) where replaying a reasoning model's raw LaTeX-style output (`\boxed{4}`, `\sqrt{2}`, etc.) as context on a later turn causes the server to fail with a 500 error.
