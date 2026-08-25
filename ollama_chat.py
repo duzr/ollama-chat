@@ -3,14 +3,43 @@
 
 # argparse: parses command-line arguments like --host
 # json: used to decode the streamed JSON lines Ollama sends back during chat
+# re: used to strip <think>...</think> reasoning blocks before they're
+#     replayed back to the server as conversation history (see
+#     _sanitize_for_history below)
 # sys: used to exit the program with an error status code
 import argparse
 import json
+import re
 import sys
 
 # requests: third-party HTTP library used to talk to the Ollama server's REST API.
 # Install it with: pip install requests
 import requests
+
+# Matches <think>...</think> reasoning blocks that some models (e.g.
+# deepseek-r1) wrap their chain-of-thought in. re.DOTALL lets "." match
+# newlines too, since these blocks are usually multi-line.
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _sanitize_for_history(reply: str) -> str:
+    """Clean up a model reply before storing it in the conversation history.
+
+    Some Ollama-compatible backends (e.g. the HailoRT runtime used by
+    Hailo AI accelerators) do their own internal JSON re-templating when
+    turning the conversation history into a prompt for the model, and
+    that step doesn't properly escape the message content it's given.
+    Reasoning models frequently emit raw backslashes (LaTeX math like
+    "\\boxed{4}" or "\\sqrt{2}") and <think>...</think> scratch reasoning
+    that's full of them. Once that text is echoed back as history on the
+    next turn, an unescaped backslash can break the server's internal
+    JSON parser ("Failed to render prompt from JSON strings: parse
+    error"), even though our own outgoing HTTP request is valid JSON.
+    Stripping think blocks and doubling stray backslashes avoids that.
+    """
+    reply = _THINK_BLOCK_RE.sub("", reply)
+    reply = reply.replace("\\", "\\\\")
+    return reply.strip()
 
 
 def list_models(base_url: str) -> list[dict]:
@@ -112,9 +141,12 @@ def chat(base_url: str, model: str) -> None:
                 break
         print("\n")
 
-        # Save the model's full reply to the conversation history so the
-        # next request includes it as context.
-        messages.append({"role": "assistant", "content": reply})
+        # Save the model's reply to the conversation history so the next
+        # request includes it as context. It's sanitized first (see
+        # _sanitize_for_history) so a raw backslash from LaTeX-style math
+        # or a <think> block doesn't break the server's internal prompt
+        # rendering on the following turn.
+        messages.append({"role": "assistant", "content": _sanitize_for_history(reply)})
 
 
 def main() -> None:
